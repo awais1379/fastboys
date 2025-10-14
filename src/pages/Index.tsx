@@ -20,7 +20,7 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
+  orderBy,
   query,
   where,
   runTransaction,
@@ -80,33 +80,6 @@ function buildMailto({
   const qp = new URLSearchParams({ subject, body });
   return `mailto:${to}?${qp.toString()}`;
 }
-
-const services = [
-  {
-    icon: <Wrench className="w-6 h-6" />,
-    title: "Mount & Balance",
-    desc: "Pro tire mounting, balancing, and TPMS programming for a smooth ride.",
-    price: "from $25 / wheel",
-  },
-  {
-    icon: <Gauge className="w-6 h-6" />,
-    title: "Seasonal Swaps",
-    desc: "Swap sets fast. Storage options available — keep your hands clean.",
-    price: "from $60 / set",
-  },
-  {
-    icon: <Settings className="w-6 h-6" />,
-    title: "Brakes & Minor Repairs",
-    desc: "Pads, rotors, inspections, and quick fixes that keep you safe.",
-    price: "quote",
-  },
-  {
-    icon: <Car className="w-6 h-6" />,
-    title: "Wheel Sales (Used/Wholesale)",
-    desc: "Pre-owned and wholesale tire sourcing on request. DM for inventory.",
-    price: "request",
-  },
-];
 
 const faqs = [
   {
@@ -183,6 +156,40 @@ type SettingsDoc = {
   sunClose?: string;
 };
 
+type ServiceItem = {
+  id: string;
+  iconKey?: string; // e.g. "Wrench", "Gauge", "Settings", "Car", "ShieldCheck"
+  title: string;
+  desc: string;
+  priceLabel?: string; // the little subtitle (e.g. "from $25 / wheel")
+  active?: boolean;
+  order?: number;
+};
+
+type PricingItem = {
+  id: string;
+  name: string; // card title
+  price: string; // free-form string: "$25 / wheel"
+  details: string[]; // 3 points
+  currency?: string; // default "CAD"
+  active?: boolean;
+  order?: number;
+};
+
+// Keep the icons minimal (only ones you already import). Fallback to Wrench.
+const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  Wrench,
+  Gauge,
+  Settings,
+  Car,
+  ShieldCheck,
+};
+
+const renderIcon = (key?: string) => {
+  const Cmp = (key && ICONS[key]) || Wrench;
+  return <Cmp className="w-6 h-6" aria-hidden />;
+};
+
 // time helpers
 const toMinutes = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
@@ -204,6 +211,7 @@ const Index = () => {
     email: "", // NEW
     service: "Mount & Balance",
     date: "",
+    price: "",
   });
 
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
@@ -212,6 +220,8 @@ const Index = () => {
   const [selectedTime, setSelectedTime] = useState<string>(""); // chosen time
   const [loadingTimes, setLoadingTimes] = useState(false);
   const [bookingBusy, setBookingBusy] = useState(false);
+  const [servicesDb, setServicesDb] = useState<ServiceItem[]>([]);
+  const [pricingDb, setPricingDb] = useState<PricingItem[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -309,6 +319,43 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.date, settings, generateTimesForDate]);
 
+  useEffect(() => {
+    // Services → active only, ordered
+    const unsubServices = onSnapshot(
+      query(
+        collection(db, "services"),
+        where("active", "==", true),
+        orderBy("order", "asc")
+      ),
+      (snap) => {
+        const rows: ServiceItem[] = [];
+        snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
+        setServicesDb(rows);
+      },
+      (err) => console.error("Services subscribe failed:", err)
+    );
+
+    // Pricing → active only, ordered
+    const unsubPricing = onSnapshot(
+      query(
+        collection(db, "pricing"),
+        where("active", "==", true),
+        orderBy("order", "asc")
+      ),
+      (snap) => {
+        const rows: PricingItem[] = [];
+        snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as any) }));
+        setPricingDb(rows);
+      },
+      (err) => console.error("Pricing subscribe failed:", err)
+    );
+
+    return () => {
+      unsubServices();
+      unsubPricing();
+    };
+  }, []);
+
   const mailto = useMemo(() => {
     return buildMailto({
       to: site.email,
@@ -329,6 +376,50 @@ const Index = () => {
       );
     }
   })();
+
+  // Map service name -> price (e.g. "$25 / wheel")
+  const priceByName = useMemo(() => {
+    const m = new Map<string, string>();
+    pricingDb.forEach((p) => m.set(p.name, p.price));
+    return m;
+  }, [pricingDb]);
+
+  // Whenever service changes (or pricing loads), set price
+  useEffect(() => {
+    const next = priceByName.get(form.service) ?? "";
+    if (next !== form.price) setForm((f) => ({ ...f, price: next }));
+  }, [form.service, priceByName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 24h "HH:mm" -> "h:mma" (e.g., "09:00" -> "9:00am")
+  const fmt12 = (hhmm?: string) => {
+    if (!hhmm) return "";
+    const [H, M] = hhmm.split(":").map(Number);
+    const h12 = (H % 12 || 12).toString();
+    const mm = M.toString().padStart(2, "0");
+    const ap = H < 12 ? "am" : "pm";
+    return `${h12}:${mm}${ap}`;
+  };
+
+  // Hours derived from Firestore settings (fallback to site.hours until loaded)
+  const derivedHours = useMemo(() => {
+    if (!settings) return null;
+    return [
+      {
+        d: "Mon–Fri",
+        h: `${fmt12(settings.monFriOpen)} – ${fmt12(settings.monFriClose)}`,
+      },
+      {
+        d: "Saturday",
+        h: `${fmt12(settings.satOpen)} – ${fmt12(settings.satClose)}`,
+      },
+      {
+        d: "Sunday",
+        h: settings.sunClosed
+          ? "Closed"
+          : `${fmt12(settings.sunOpen)} – ${fmt12(settings.sunClose)}`,
+      },
+    ];
+  }, [settings]);
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -484,7 +575,7 @@ const Index = () => {
             subtitle="Straightforward, high‑quality work. No fluff."
           />
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {services.map((s, i) => (
+            {servicesDb.map((s, i) => (
               <motion.div
                 key={s.title}
                 initial={{ opacity: 0, y: 10 }}
@@ -494,11 +585,13 @@ const Index = () => {
                 className="group rounded-2xl p-5 bg-neutral-900/60 border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900"
               >
                 <div className="w-10 h-10 rounded-xl bg-red-600/20 grid place-items-center group-hover:bg-red-600/30 transition-colors">
-                  {s.icon}
+                  {renderIcon(s.iconKey)}
                 </div>
                 <h3 className="mt-3 font-semibold text-white">{s.title}</h3>
                 <p className="mt-1 text-sm text-neutral-300">{s.desc}</p>
-                <div className="mt-3 text-xs text-neutral-400">{s.price}</div>
+                <div className="mt-3 text-xs text-neutral-400">
+                  {s.priceLabel}
+                </div>
               </motion.div>
             ))}
           </div>
@@ -517,27 +610,7 @@ const Index = () => {
             subtitle="No surprises — taxes extra."
           />
           <div className="grid md:grid-cols-3 gap-6">
-            {[
-              {
-                name: "Tire Swap (on rims)",
-                price: "$60",
-                details: [
-                  "4 wheels on/off",
-                  "Torque to spec",
-                  "Pressure check",
-                ],
-              },
-              {
-                name: "Mount & Balance",
-                price: "$25 / wheel",
-                details: ["Standard sizes", "TPMS reset", "Stick‑on weights"],
-              },
-              {
-                name: "Flat Repair",
-                price: "$30",
-                details: ["Patch + plug", "Balance check", "Road test"],
-              },
-            ].map((p, i) => (
+            {pricingDb.map((p, i) => (
               <motion.div
                 key={p.name}
                 initial={{ opacity: 0, y: 10 }}
@@ -569,6 +642,9 @@ const Index = () => {
                 </ul>
                 <a
                   href="#booking"
+                  onClick={() =>
+                    setForm((f) => ({ ...f, service: p.name, price: p.price }))
+                  }
                   className="mt-5 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 font-semibold"
                 >
                   Book this
@@ -635,6 +711,7 @@ const Index = () => {
                       phone: form.phone,
                       email: form.email,
                       service: form.service,
+                      price: form.price,
                       slotId,
                       status: "booked",
                       createdAt: serverTimestamp(),
@@ -649,7 +726,18 @@ const Index = () => {
                   });
 
                   alert("Booked! We’ll confirm by text/email.");
+                  // ✅ clear everything
+                  setForm({
+                    name: "",
+                    phone: "",
+                    email: "",
+                    service: pricingDb[0]?.name ?? "Mount & Balance", // fallback
+                    date: "",
+                    price: "",
+                  });
                   setSelectedTime("");
+                  setTimes([]);
+                  setTakenTimes(new Set());
                   // optionally clear form:
                   // setForm({ name:"", phone:"", email:"", service:"Mount & Balance", date:form.date });
                 } catch (err: any) {
@@ -707,18 +795,34 @@ const Index = () => {
                   <select
                     id="service"
                     value={form.service}
-                    onChange={(e) =>
-                      setForm({ ...form, service: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setForm({
+                        ...form,
+                        service: name,
+                        price: priceByName.get(name) ?? "",
+                      });
+                    }}
                     className="mt-1 w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-600"
                   >
-                    {services.map((s) => (
-                      <option key={s.title} value={s.title}>
-                        {s.title}
+                    {pricingDb.map((s) => (
+                      <option key={s.name} value={s.name}>
+                        {s.name}
                       </option>
                     ))}
                   </select>
                 </label>
+                <label className="text-sm" htmlFor="price">
+                  Price
+                  <input
+                    id="price"
+                    value={form.price}
+                    readOnly
+                    placeholder="—"
+                    className="mt-1 w-full rounded-xl bg-neutral-950 border border-neutral-800 px-3 py-2 text-neutral-300"
+                  />
+                </label>
+
                 <label className="text-sm" htmlFor="date">
                   Preferred date
                   <input
@@ -797,7 +901,7 @@ const Index = () => {
                 <div>
                   <div className="text-neutral-400">Hours</div>
                   <ul className="mt-1 space-y-1">
-                    {site.hours.map((h) => (
+                    {(derivedHours ?? site.hours).map((h) => (
                       <li key={h.d} className="flex justify-between gap-4">
                         <span>{h.d}</span>
                         <span className="text-neutral-400">{h.h}</span>
@@ -959,7 +1063,7 @@ const Index = () => {
           <div>
             <div className="text-sm text-neutral-400">Hours</div>
             <ul className="mt-2 space-y-1 text-sm">
-              {site.hours.map((h) => (
+              {(derivedHours ?? site.hours).map((h) => (
                 <li key={h.d} className="flex justify-between gap-4">
                   <span>{h.d}</span>
                   <span className="text-neutral-400">{h.h}</span>
@@ -1000,11 +1104,13 @@ const Index = () => {
             areaServed: site.city,
             url: "https://fastboysgarage.ca",
             sameAs: [site.instagram].filter(Boolean),
-            openingHoursSpecification: site.hours.map((h) => ({
-              "@type": "OpeningHoursSpecification",
-              // NOTE: Use exact days when you finalize; for now we keep generic text
-              description: `${h.d} ${h.h}`,
-            })),
+            openingHoursSpecification: (derivedHours ?? site.hours).map(
+              (h) => ({
+                "@type": "OpeningHoursSpecification",
+                // We keep a description for now; you can later split by actual day names if needed
+                description: `${h.d} ${h.h}`,
+              })
+            ),
           }),
         }}
       />

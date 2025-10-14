@@ -11,6 +11,7 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import BookingsPage from "./pages/admin/BookingsPage";
 import SettingsPage from "./pages/admin/SettingsPage";
 import AdminNotFound from "./pages/admin/AdminNotFound";
+import ServicesPage from "./pages/admin/ServicesPage";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,7 @@ const App = () => (
             <Route index element={<Navigate to="bookings" replace />} />
             <Route path="bookings" element={<BookingsPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="services" element={<ServicesPage />} />
             <Route path="*" element={<AdminNotFound />} />
           </Route>
 

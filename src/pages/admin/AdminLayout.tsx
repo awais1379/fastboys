@@ -27,6 +27,15 @@ export default function AdminLayout() {
             </NavLink>
 
             <NavLink
+              to="services"
+              className={({ isActive }) =>
+                `${linkBase} ${isActive ? linkActive : linkInactive}`
+              }
+            >
+              <span>🧰</span> Services
+            </NavLink>
+
+            <NavLink
               to="settings"
               className={({ isActive }) =>
                 `${linkBase} ${isActive ? linkActive : linkInactive}`

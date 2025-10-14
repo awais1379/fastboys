@@ -21,6 +21,7 @@ type Booking = {
   phone: string;
   email?: string;
   service?: string;
+  price?: string;
   status: "booked" | "cancelled" | "completed" | string;
   slotId?: string; // "YYYY-MM-DD_HHmm"
   createdAt?: any;
@@ -113,7 +114,16 @@ export default function BookingsPage() {
     service: string;
     date: string;
     time: string;
-  }>({ name: "", phone: "", email: "", service: "", date: "", time: "" });
+    price: string;
+  }>({
+    name: "",
+    phone: "",
+    email: "",
+    service: "",
+    date: "",
+    time: "",
+    price: "",
+  });
 
   const [times, setTimes] = React.useState<string[]>([]);
   const [takenTimes, setTakenTimes] = React.useState<Set<string>>(new Set());
@@ -174,6 +184,7 @@ export default function BookingsPage() {
             phone: data.phone,
             email: data.email,
             service: data.service,
+            price: data.price,
             status: data.status ?? "booked",
             slotId: data.slotId,
             createdAt: data.createdAt,
@@ -224,7 +235,7 @@ export default function BookingsPage() {
 
   // when editForm.date changes, update candidates & taken (live)
   React.useEffect(() => {
-    if (!editId || !editForm.date) {
+    if (!editId || !editForm.date || !settings) {
       setTimes([]);
       setTakenTimes(new Set());
       return;
@@ -241,10 +252,17 @@ export default function BookingsPage() {
     const unsub = onSnapshot(
       qSlots,
       (snap) => {
-        const taken = new Set<string>();
+         const taken = new Set<string>();
         snap.forEach((s) => {
-          const data = s.data() as { time?: string; booked?: boolean };
-          if (data.booked && data.time) taken.add(data.time);
+          const data = s.data() as {
+            time?: string;
+            booked?: boolean;
+            bookingId?: string;
+          };
+          // exclude the time owned by the booking we're editing
+          if (data.booked && data.time && data.bookingId !== editId) {
+            taken.add(data.time);
+          }
         });
         setTakenTimes(taken);
 
@@ -260,7 +278,7 @@ export default function BookingsPage() {
     );
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editId, editForm.date, generateTimesForDate]);
+  }, [editId, editForm.date, settings, generateTimesForDate]);
 
   // ---------- actions ----------
   const cancelBooking = async (b: Booking) => {
@@ -306,6 +324,7 @@ export default function BookingsPage() {
       service: b.service || "",
       date: b.date,
       time: b.time,
+      price: b.price || "",
     });
   };
 
@@ -377,6 +396,7 @@ export default function BookingsPage() {
             phone: editForm.phone,
             email: editForm.email,
             service: editForm.service,
+            price: editForm.price,
             date: editForm.date,
             time: editForm.time,
             slotId: newSlotId,
@@ -418,12 +438,13 @@ export default function BookingsPage() {
 
       <div className="rounded-xl border border-gray-800 overflow-hidden">
         {/* table header */}
-        <div className="grid grid-cols-[110px_80px_1fr_1fr_1fr_110px_210px] gap-3 px-4 py-2 bg-gray-900 text-xs text-gray-400">
+        <div className="grid grid-cols-[110px_80px_1fr_1fr_1fr_100px_110px_210px] gap-3 px-4 py-2 bg-gray-900 text-xs text-gray-400">
           <div>Date</div>
           <div>Time</div>
           <div>Customer</div>
           <div>Contact</div>
           <div>Service</div>
+          <div>Price</div>
           <div>Status</div>
           <div>Actions</div>
         </div>
@@ -443,11 +464,11 @@ export default function BookingsPage() {
             bookings.map((b) => {
               const rowBusy = busyId === b.id;
               const canCancel = b.status === "booked" && !rowBusy;
-              const canEdit = !rowBusy; // info edits allowed anytime; reschedule guard inside save
+              const canEdit = !rowBusy && b.status !== "cancelled";
               return (
                 <div
                   key={b.id}
-                  className="grid grid-cols-[110px_80px_1fr_1fr_1fr_110px_210px] gap-3 px-4 py-3 text-sm"
+                  className="grid grid-cols-[110px_80px_1fr_1fr_1fr_100px_110px_210px] gap-3 px-4 py-3 text-sm"
                 >
                   <div className="text-gray-200">{b.date}</div>
                   <div className="text-gray-200">{b.time}</div>
@@ -457,6 +478,8 @@ export default function BookingsPage() {
                     <div className="text-xs">{b.email || ""}</div>
                   </div>
                   <div className="text-gray-300">{b.service || "—"}</div>
+                  <div className="text-gray-300">{b.price || "—"}</div>{" "}
+                  {/* NEW */}
                   <div>
                     <span
                       className={[
@@ -552,6 +575,18 @@ export default function BookingsPage() {
                   onChange={(e) =>
                     setEditForm((f) => ({ ...f, service: e.target.value }))
                   }
+                />
+              </label>
+
+              <label className="text-sm">
+                Price
+                <input
+                  className="mt-1 w-full rounded-md bg-gray-900 border border-gray-700 px-2 py-2 text-sm"
+                  value={editForm.price}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, price: e.target.value }))
+                  }
+                  placeholder="$25 / wheel"
                 />
               </label>
 
