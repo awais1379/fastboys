@@ -10,10 +10,10 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 
 // Your templates
-import BookingConfirmed from "./emails/BookingConfirmed";
-import BookingRescheduled from "./emails/BookingRescheduled";
-import BookingCancelled from "./emails/BookingCancelled";
-import type { BaseEmailPayload } from "./emails/types";
+import BookingConfirmed from "./emails/BookingConfirmed.js";
+import BookingRescheduled from "./emails/BookingRescheduled.js";
+import BookingCancelled from "./emails/BookingCancelled.js";
+import type { BaseEmailPayload } from "./emails/types.js";
 import * as React from "react";
 
 // ---- env ----

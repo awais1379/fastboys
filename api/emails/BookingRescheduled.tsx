@@ -1,6 +1,6 @@
 import * as React from "react";
-import EmailLayout from "./EmailLayout";
-import { BaseEmailPayload } from "./types";
+import EmailLayout from "./EmailLayout.js";
+import { BaseEmailPayload } from "./types.js";
 
 export default function BookingRescheduled(p: BaseEmailPayload) {
   const Row = ({ label, value }: any) =>
