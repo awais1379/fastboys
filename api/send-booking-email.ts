@@ -1,24 +1,16 @@
 // /api/send-booking-email.ts
-// Email sender (Resend) using React Email templates.
-// Accepts BOTH payload shapes: {event, data:{...}} and {type, to, ...}
+// Resend email sender with inline HTML templates (no JSX, no imports).
+// Accepts BOTH shapes: { event, data:{...} } and { type, to, ... }
 
 import { config as dotenv } from "dotenv";
-dotenv({ path: ".env.local" });
+dotenv({ path: ".env.local" }); // local dev
 dotenv();
 
 import { Resend } from "resend";
-import { render } from "@react-email/render";
-
-// Your templates
-import BookingConfirmed from "./emails/BookingConfirmed.js";
-import BookingRescheduled from "./emails/BookingRescheduled.js";
-import BookingCancelled from "./emails/BookingCancelled.js";
-import type { BaseEmailPayload } from "./emails/types.js";
-import * as React from "react";
 
 // ---- env ----
 const RESEND_API_KEY =
-  process.env.RESEND_API_KEY || process.env.VITE_EMAIL_SECRET; // supports either name
+  process.env.RESEND_API_KEY || process.env.VITE_EMAIL_SECRET;
 const FROM = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
 if (!RESEND_API_KEY) {
@@ -26,32 +18,129 @@ if (!RESEND_API_KEY) {
     "[send-booking-email] Missing RESEND_API_KEY / VITE_EMAIL_SECRET"
   );
 }
-
 const resend = new Resend(RESEND_API_KEY);
+
+// ---- tiny utils (no JSX) ----
+function escapeHtml(input: string) {
+  const s = String(input ?? "");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function row(label: string, value?: string) {
+  if (!value) return "";
+  return `<tr>
+    <td style="padding:6px 0;color:#a3a3a3;width:120px;vertical-align:top;">${escapeHtml(
+      label
+    )}</td>
+    <td style="padding:6px 0;color:#e5e5e5;">${escapeHtml(value)}</td>
+  </tr>`;
+}
+function wrap(body: string, title = "Fast Boys Garage") {
+  return `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<body style="margin:0;padding:0;background:#0a0a0a;color:#e5e5e5;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:560px;margin:0 auto;padding:28px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f0f0f;border:1px solid #262626;border-radius:12px;">
+      <tr><td style="padding:24px;">
+        <h1 style="margin:0 0 12px;font-size:18px;color:#fff;">Fast Boys Garage</h1>
+        ${body}
+        <p style="margin-top:20px;color:#a3a3a3;font-size:12px;">London, Ontario • Reply to this email to change anything.</p>
+      </td></tr>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+// ---- inline “templates” ----
+type Core = {
+  name: string;
+  phone?: string;
+  service?: string;
+  price?: string;
+  date: string;
+  time: string;
+};
+
+function htmlBooked(p: Core) {
+  return wrap(
+    `
+<p style="margin:0 0 12px;">Hey ${escapeHtml(
+      p.name
+    )}, thanks for booking with us! Here are your details:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-top:8px;">
+  ${row("Service", p.service)}
+  ${row("Price", p.price)}
+  ${row("Date", p.date)}
+  ${row("Time", p.time)}
+  ${row("Phone", p.phone)}
+</table>
+<p style="margin:16px 0 0;">If anything changes, just reply to this email.</p>
+`,
+    "Booking confirmed"
+  );
+}
+function htmlRescheduled(p: Core) {
+  return wrap(
+    `
+<p style="margin:0 0 12px;">Heads up, ${escapeHtml(
+      p.name
+    )} — your booking was rescheduled. New details:</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-top:8px;">
+  ${row("Service", p.service)}
+  ${row("Price", p.price)}
+  ${row("Date", p.date)}
+  ${row("Time", p.time)}
+  ${row("Phone", p.phone)}
+</table>
+<p style="margin:16px 0 0;">Reply if this doesn’t work and we’ll find another time.</p>
+`,
+    "Booking rescheduled"
+  );
+}
+function htmlCancelled(p: Core) {
+  return wrap(
+    `
+<p style="margin:0 0 12px;">Hi ${escapeHtml(
+      p.name
+    )}, your booking has been cancelled.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;margin-top:8px;">
+  ${row("Service", p.service)}
+  ${row("Date", p.date)}
+  ${row("Time", p.time)}
+</table>
+<p style="margin:16px 0 0;">Need to rebook? Reply to this email and we’ll get you in.</p>
+`,
+    "Booking cancelled"
+  );
+}
 
 // ---- input normalization ----
 type EmailType = "booked" | "rescheduled" | "cancelled";
-
 type BodyAny = {
   // “new” shape
   type?: EmailType;
   to?: string;
   name?: string;
-  email?: string; // allow either `to` or `email`
+  email?: string;
   phone?: string;
   service?: string;
   price?: string;
-  date?: string; // YYYY-MM-DD
-  time?: string; // HH:mm
-
-  // “current” shape (as you logged before)
-  event?: string; // booking.created | booking.updated | booking.cancelled (or booked/rescheduled/cancelled)
+  date?: string;
+  time?: string;
+  // “current” shape from your app
+  event?: string; // booking.created | booking.updated | booking.cancelled
   data?: any;
   booking?: any;
 };
-
 function mapEventToType(event?: string): EmailType | undefined {
-  if (!event) return undefined;
   const m: Record<string, EmailType> = {
     booked: "booked",
     rescheduled: "rescheduled",
@@ -60,37 +149,28 @@ function mapEventToType(event?: string): EmailType | undefined {
     "booking.updated": "rescheduled",
     "booking.cancelled": "cancelled",
   };
-  return m[event];
+  return event ? m[event] : undefined;
 }
-
 function normalize(body: BodyAny): {
   type?: EmailType;
   to?: string;
-  core: BaseEmailPayload;
+  core: Core & { to?: string };
 } {
-  // prefer explicit "booking" or "data"
-  const src = (body.booking ??
-    body.data ??
-    body) as Partial<BaseEmailPayload> & {
+  const src = (body.booking ?? body.data ?? body) as Partial<Core> & {
     email?: string;
   };
-
   const type =
     (body.type as EmailType | undefined) || mapEventToType(body.event);
-
-  const to = body.to || src.email; // `to` wins, otherwise `email` from payload
-
-  const core: BaseEmailPayload = {
-    // the templates only need these (they don't need `to`)
-    name: src.name ?? "",
-    phone: src.phone,
-    service: src.service,
-    price: src.price,
-    date: src.date ?? "",
-    time: src.time ?? "",
-    to: to ?? "", // not used by template but kept for completeness
+  const to = body.to || src?.email;
+  const core: Core & { to?: string } = {
+    name: src?.name ?? "",
+    phone: src?.phone,
+    service: src?.service,
+    price: src?.price,
+    date: src?.date ?? "",
+    time: src?.time ?? "",
+    to: to ?? "",
   };
-
   return { type, to, core };
 }
 
@@ -107,7 +187,6 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Vercel sends parsed JSON already; keep fallback for safety
     const parsed: BodyAny =
       typeof req.body === "object" && req.body
         ? req.body
@@ -115,26 +194,24 @@ export default async function handler(req: any, res: any) {
 
     const { type, to, core } = normalize(parsed);
 
-    // minimal validation (use what your client already sends)
     if (!type || !to || !core.name || !core.date || !core.time) {
       return res
         .status(400)
         .json({ ok: false, error: "Missing required fields" });
     }
 
-    // subject + HTML from React Email templates
+    // subject + HTML
     let subject = "Fast Boys Garage";
     let html = "";
-
     if (type === "booked") {
       subject = `Booking confirmed — ${core.date} ${core.time}`;
-      html = await render(React.createElement(BookingConfirmed, { ...core }));
+      html = htmlBooked(core);
     } else if (type === "rescheduled") {
       subject = `Booking rescheduled — ${core.date} ${core.time}`;
-      html = await render(React.createElement(BookingRescheduled, { ...core }));
+      html = htmlRescheduled(core);
     } else if (type === "cancelled") {
       subject = `Booking cancelled — ${core.date} ${core.time}`;
-      html = await render(React.createElement(BookingCancelled, { ...core }));
+      html = htmlCancelled(core);
     } else {
       return res.status(400).json({ ok: false, error: "Unknown email type" });
     }
@@ -150,7 +227,6 @@ export default async function handler(req: any, res: any) {
       console.error("Resend error:", error);
       return res.status(500).json({ ok: false, error: String(error) });
     }
-
     return res.status(200).json({ ok: true, id: data?.id });
   } catch (err: any) {
     console.error(err);
