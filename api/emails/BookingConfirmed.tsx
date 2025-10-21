@@ -1,6 +1,6 @@
 import * as React from "react";
-import EmailLayout from "./EmailLayout.tsx";
-import { BaseEmailPayload } from "./types.ts";
+import EmailLayout from "./EmailLayout";
+import { BaseEmailPayload } from "./types";
 
 export default function BookingConfirmed(p: BaseEmailPayload) {
   const row = (label: string, value?: string) =>
