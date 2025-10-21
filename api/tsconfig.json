@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "target": "ES2022",
+    "types": ["node", "react", "react-dom"],
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": { "@/src/*": ["../src/*"] },
+    "skipLibCheck": true
+  },
+  "include": ["./**/*", "../emails"]
+}

@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   getDoc,
 } from "firebase/firestore";
+import { sendBookingEmail } from "@/lib/email";
 
 type Booking = {
   id: string;
@@ -252,7 +253,7 @@ export default function BookingsPage() {
     const unsub = onSnapshot(
       qSlots,
       (snap) => {
-         const taken = new Set<string>();
+        const taken = new Set<string>();
         snap.forEach((s) => {
           const data = s.data() as {
             time?: string;
@@ -306,6 +307,16 @@ export default function BookingsPage() {
           { status: "cancelled", updatedAt: serverTimestamp() },
           { merge: true }
         );
+      });
+      // fire-and-forget cancellation email
+      sendBookingEmail("booking.cancelled", {
+        name: b.name,
+        email: b.email,
+        phone: b.phone,
+        service: b.service,
+        price: b.price,
+        date: b.date,
+        time: b.time,
       });
     } catch (e: any) {
       console.error(e);
@@ -405,6 +416,21 @@ export default function BookingsPage() {
           { merge: true }
         );
       });
+      // email depends on whether date/time changed
+      const eventName =
+        original.date !== editForm.date || original.time !== editForm.time
+          ? "booking.rescheduled"
+          : "booking.updated";
+
+      sendBookingEmail(eventName, {
+        name: editForm.name,
+        email: editForm.email,
+        phone: editForm.phone,
+        service: editForm.service,
+        price: editForm.price,
+        date: editForm.date,
+        time: editForm.time,
+      });
 
       setEditId(null);
     } catch (e: any) {
@@ -487,8 +513,8 @@ export default function BookingsPage() {
                         b.status === "booked"
                           ? "bg-green-600/20 text-green-300 border border-green-700/40"
                           : b.status === "cancelled"
-                          ? "bg-red-600/20 text-red-300 border border-red-700/40"
-                          : "bg-gray-600/20 text-gray-300 border border-gray-700/40",
+                            ? "bg-red-600/20 text-red-300 border border-red-700/40"
+                            : "bg-gray-600/20 text-gray-300 border border-gray-700/40",
                       ].join(" ")}
                     >
                       {b.status}
@@ -629,8 +655,8 @@ export default function BookingsPage() {
                             taken
                               ? "opacity-40 cursor-not-allowed border-neutral-800 bg-neutral-900"
                               : selected
-                              ? "border-red-500 bg-red-600 text-white"
-                              : "border-neutral-800 bg-neutral-950 hover:border-neutral-700",
+                                ? "border-red-500 bg-red-600 text-white"
+                                : "border-neutral-800 bg-neutral-950 hover:border-neutral-700",
                           ].join(" ")}
                           aria-pressed={selected}
                           title={taken ? "Taken" : "Available"}

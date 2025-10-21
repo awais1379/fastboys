@@ -27,6 +27,7 @@ import {
   serverTimestamp,
   onSnapshot,
 } from "firebase/firestore";
+import { sendBookingEmail } from "@/lib/email";
 
 /**
  * Fast Boys Garage — One‑page site (React + Tailwind)
@@ -718,6 +719,17 @@ const Index = () => {
                     });
                   });
 
+                  // Send confirmation email (non-blocking)
+                  sendBookingEmail("booking.created", {
+                    name: form.name,
+                    email: form.email,
+                    phone: form.phone,
+                    service: form.service,
+                    price: form.price,
+                    date: form.date,
+                    time: selectedTime,
+                  });
+
                   // Optimistic: mark selected as taken now (realtime listener will confirm)
                   setTakenTimes((prev) => {
                     const next = new Set(prev);
@@ -862,8 +874,8 @@ const Index = () => {
                                 taken
                                   ? "opacity-40 cursor-not-allowed border-neutral-800 bg-neutral-900"
                                   : selected
-                                  ? "border-red-500 bg-red-600 text-white"
-                                  : "border-neutral-800 bg-neutral-950 hover:border-neutral-700",
+                                    ? "border-red-500 bg-red-600 text-white"
+                                    : "border-neutral-800 bg-neutral-950 hover:border-neutral-700",
                               ].join(" ")}
                               aria-pressed={selected}
                               aria-label={`Time ${t}${taken ? " (taken)" : ""}`}
