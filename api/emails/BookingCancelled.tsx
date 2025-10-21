@@ -27,7 +27,7 @@ export default function BookingCancelled(p: BaseEmailPayload) {
   return (
     <EmailLayout preview="Booking cancelled" title="Booking cancelled">
       <p style={{ margin: "0 0 12px" }}>
-        Hi {p.name}, your booking has been cancelled.
+        Hi {p.name}, your booking has been cancelled!!!!.
       </p>
       <Row label="Service" value={p.service} />
       <Row label="Date" value={p.date} />
